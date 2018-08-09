@@ -6,6 +6,8 @@
 #ifndef IstProceduralModeling_h
 #define IstProceduralModeling_h
 
+#define USE_FRUSTUM_CORNERS 1 // fix VR
+
 #include "UnityStandardCore.cginc"
 #include "Assets/Ist/Foundation/Shaders/Math.cginc"
 #include "Assets/Ist/Foundation/Shaders/Geometry.cginc"
@@ -24,8 +26,17 @@ struct vs_out
     float4 screen_pos : TEXCOORD0;
     float4 world_pos : TEXCOORD1;
     float3 world_normal: TEXCOORD2;
+    #if USE_FRUSTUM_CORNERS
+    float4 interpolatedRay : TEXCOORD3;
+    #endif
 };
 
+#if USE_FRUSTUM_CORNERS
+uniform float4x4 _FrustumCorners;
+#if UNITY_SINGLE_PASS_STEREO
+uniform float4x4 _FrustumCorners2;
+#endif
+#endif
 
 vs_out vert(ia_out I)
 {
@@ -34,6 +45,20 @@ vs_out vert(ia_out I)
     O.screen_pos = ComputeScreenPos(O.vertex);
     O.world_pos = mul(unity_ObjectToWorld, I.vertex);
     O.world_normal = mul(unity_ObjectToWorld, float4(I.normal, 0.0));
+
+#if USE_FRUSTUM_CORNERS
+    float2 quadVertex = (I.vertex.xy + 1.0) / 2.0;
+    int frustumIndex = quadVertex.x + 2 * (1 - quadVertex.y);
+    #if UNITY_SINGLE_PASS_STEREO
+      if (unity_StereoEyeIndex == 0)
+        O.interpolatedRay = _FrustumCorners[frustumIndex];
+      else
+        O.interpolatedRay = _FrustumCorners2[frustumIndex];
+    #else
+      O.interpolatedRay = _FrustumCorners[frustumIndex];
+    #endif
+#endif
+
     return O;
 }
 #endif // ENABLE_CUSTUM_VERTEX
@@ -60,6 +85,9 @@ struct raymarch_data
     float num_steps;
     float total_distance;
     float last_distance;
+    #if USE_FRUSTUM_CORNERS
+    float3 ray_dir;
+    #endif
 };
 
 

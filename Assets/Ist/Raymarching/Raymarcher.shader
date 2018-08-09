@@ -21,6 +21,9 @@ Properties {
 }
 
 CGINCLUDE
+
+#define USE_FRUSTUM_CORNERS 1 // fixes VR convergence
+
 #include "UnityStandardCore.cginc"
 #include "distance_functions.cginc"
 
@@ -123,8 +126,17 @@ struct vs_out
 {
     float4 vertex : SV_POSITION;
     float4 spos : TEXCOORD0;
+    #if USE_FRUSTUM_CORNERS
+    float4 interpolatedRay : TEXCOORD1;
+    #endif
 };
 
+#if USE_FRUSTUM_CORNERS
+uniform float4x4 _FrustumCorners;
+#if UNITY_SINGLE_PASS_STEREO
+uniform float4x4 _FrustumCorners2;
+#endif
+#endif
 
 vs_out vert(ia_out I)
 {
@@ -135,6 +147,20 @@ vs_out vert(ia_out I)
     O.vertex = UnityObjectToClipPos(I.vertex);
 #endif
     O.spos = O.vertex;
+
+#if USE_FRUSTUM_CORNERS
+    float2 quadVertex = (I.vertex.xy + 1.0) / 2.0;
+    int frustumIndex = quadVertex.x + 2 * (1 - quadVertex.y);
+    #if UNITY_SINGLE_PASS_STEREO
+      if (unity_StereoEyeIndex == 0)
+        O.interpolatedRay = _FrustumCorners[frustumIndex];
+      else
+        O.interpolatedRay = _FrustumCorners2[frustumIndex];
+    #else
+      O.interpolatedRay = _FrustumCorners[frustumIndex];
+    #endif
+#endif
+
     return O;
 }
 
@@ -171,6 +197,25 @@ void raymarching(float2 pos, const int num_steps, inout float o_total_distance, 
     //if(o_total_distance > max_distance) { discard; }
 }
 
+
+void raymarchingFrustum(float3 ray_dir, const int num_steps, inout float o_total_distance, out float o_num_steps, out float o_last_distance, out float3 o_raypos)
+{
+    float3 cam_pos      = GetCameraPosition();
+    float max_distance = _ProjectionParams.z - _ProjectionParams.y;
+    o_raypos = cam_pos + ray_dir * o_total_distance;
+
+    o_num_steps = 0.0;
+    o_last_distance = 0.0;
+    for(int i=0; i<num_steps; ++i) {
+        o_last_distance = map(o_raypos);
+        o_total_distance += o_last_distance;
+        o_raypos += ray_dir * o_last_distance;
+        o_num_steps += 1.0;
+        if(o_last_distance < 0.001 || o_total_distance > max_distance) { break; }
+    }
+    o_total_distance = min(o_total_distance, max_distance);
+    //if(o_total_distance > max_distance) { discard; }
+}
 
 
 struct gbuffer_out
@@ -213,7 +258,12 @@ gbuffer_out frag_gbuffer(vs_out I)
         }
 #else // ENABLE_ADAPTIVE
     {
+#if USE_FRUSTUM_CORNERS
+        float3 ray_dir = normalize(I.interpolatedRay);
+        raymarchingFrustum(ray_dir, MAX_MARCH_SINGLE_GBUFFER_PASS, total_distance, num_steps, last_distance, ray_pos);
+#else
         raymarching(coord, MAX_MARCH_SINGLE_GBUFFER_PASS, total_distance, num_steps, last_distance, ray_pos);
+#endif
         normal = guess_normal(ray_pos);
     }
 #endif // ENABLE_ADAPTIVE
