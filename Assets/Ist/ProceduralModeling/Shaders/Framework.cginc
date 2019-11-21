@@ -17,7 +17,11 @@ float3 guess_normal(float3 p)
 
 void raymarching(inout raymarch_data rmd)
 {
+    #if USE_FRUSTUM_CORNERS
+    float3 ray_dir = rmd.ray_dir;
+    #else
     float3 ray_dir = normalize(rmd.ray_pos - GetCameraPosition());
+    #endif
 
     float prev = 0.0;
     for (int i = 0; i<MAX_MARCH_STEPS; ++i) {
@@ -64,6 +68,9 @@ gbuffer_out frag_gbuffer(vs_out I)
     raymarch_data rmd;
     UNITY_INITIALIZE_OUTPUT(raymarch_data,rmd);
     rmd.ray_pos = world_pos;
+#if USE_FRUSTUM_CORNERS
+    rmd.ray_dir = normalize(I.interpolatedRay);
+#endif
 
     initialize(rmd);
 
